@@ -7,28 +7,47 @@ DB_PATH = os.getenv("DB_PATH", "messages.db")
 
 
 def import_seed(seed_path=None):
-    """Одноразовый перенос подписок со старой базы (только если users пуста)."""
+    """Одноразовый перенос подписок со старой базы.
+
+    Восстанавливает каждый активный seed-пользователь, если у него сейчас
+    нет живой подписки. Выполняется только один раз (метка в app_meta),
+    повторные деплои ничего не перезаписывают.
+    """
     if seed_path is None:
         seed_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seed.json")
     if not os.path.exists(seed_path):
         return
     conn = get_conn()
     c = conn.cursor()
-    try:
-        count = c.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-    except sqlite3.OperationalError:
-        count = 0
-    if count:
+    c.execute(
+        "CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT)"
+    )
+    done = c.execute("SELECT value FROM app_meta WHERE key = 'seed_imported'").fetchone()
+    if done:
         conn.close()
         return
     with open(seed_path, "r", encoding="utf-8") as f:
         rows = json.load(f)
+    now = datetime.now()
     for row in rows:
+        uid = row["user_id"]
+        until = row.get("active_until")
+        cur = c.execute(
+            "SELECT is_active, active_until FROM users WHERE user_id = ?", (uid,)
+        ).fetchone()
+        live = cur and cur[0] and cur[1] and datetime.fromisoformat(cur[1]) > now
+        if live:
+            continue
         c.execute(
-            "INSERT OR IGNORE INTO users (user_id, username, is_active, active_until, receipt_pending, receipt_sent) "
-            "VALUES (?, ?, ?, ?, 0, 0)",
-            (row["user_id"], row.get("username"), 1 if row.get("is_active") else 0, row.get("active_until")),
+            "INSERT INTO users (user_id, username, is_active, active_until, receipt_pending, receipt_sent) "
+            "VALUES (?, ?, 1, ?, 0, 0) "
+            "ON CONFLICT(user_id) DO UPDATE SET "
+            "is_active = 1, active_until = excluded.active_until, receipt_pending = 0, receipt_sent = 0",
+            (uid, row.get("username"), until),
         )
+    c.execute(
+        "INSERT OR REPLACE INTO app_meta (key, value) VALUES ('seed_imported', '1')"
+    )
     conn.commit()
     conn.close()
 
