@@ -1012,6 +1012,7 @@ async def cleanup_task():
 # ── Main ──────────────────────────────────────────────────────────────────
 async def main():
     db.init_db()
+    db.import_seed()
     dp.include_router(router)
 
     if not YOOMONEY_TOKEN or not YOOMONEY_WALLET:

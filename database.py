@@ -1,8 +1,36 @@
+import json
 import os
 import sqlite3
 from datetime import datetime, timedelta
 
 DB_PATH = os.getenv("DB_PATH", "messages.db")
+
+
+def import_seed(seed_path=None):
+    """Одноразовый перенос подписок со старой базы (только если users пуста)."""
+    if seed_path is None:
+        seed_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seed.json")
+    if not os.path.exists(seed_path):
+        return
+    conn = get_conn()
+    c = conn.cursor()
+    try:
+        count = c.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    except sqlite3.OperationalError:
+        count = 0
+    if count:
+        conn.close()
+        return
+    with open(seed_path, "r", encoding="utf-8") as f:
+        rows = json.load(f)
+    for row in rows:
+        c.execute(
+            "INSERT OR IGNORE INTO users (user_id, username, is_active, active_until, receipt_pending, receipt_sent) "
+            "VALUES (?, ?, ?, ?, 0, 0)",
+            (row["user_id"], row.get("username"), 1 if row.get("is_active") else 0, row.get("active_until")),
+        )
+    conn.commit()
+    conn.close()
 
 
 def get_conn():
