@@ -1,0 +1,10 @@
+.env
+__pycache__/
+*.pyc
+media/
+trace.txt
+messages.db
+bot_deploy.zip
+data/
+*.pem
+test_pay.py
