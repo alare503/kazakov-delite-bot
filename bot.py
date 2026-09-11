@@ -829,7 +829,7 @@ async def on_maybe_deleted(msg: Message):
 
 
 # ── Сохранение медиа (в т.ч. исчезающих) ─────────────────────────────────
-MEDIA_DIR = Path(__file__).resolve().parent / "media"
+MEDIA_DIR = Path(os.getenv("MEDIA_DIR", str(Path(__file__).resolve().parent / "media")))
 MEDIA_DIR.mkdir(exist_ok=True)
 
 # Уже отправленные владельцу копии фото (file_id --> chat/message_id),
