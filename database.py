@@ -438,6 +438,15 @@ def remove_business_connection(business_connection_id):
     conn.close()
 
 
+def get_all_business_connections():
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT * FROM business_connections")
+    rows = c.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 # ── User settings (per-feature on/off) ────────────────────────────────────
 
 DEFAULT_SETTINGS = {

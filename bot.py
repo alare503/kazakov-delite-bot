@@ -749,6 +749,7 @@ async def on_edited_business_message(msg: Message):
 @router.deleted_business_messages()
 async def on_deleted_business_messages(evt: BusinessMessagesDeleted):
     conn = db.get_business_connection(evt.business_connection_id)
+    logger.info(f"Deleted biz msgs: bconn={evt.business_connection_id} chat={evt.chat.id} mids={evt.message_ids} conn={bool(conn)}")
     if not conn or not conn["is_enabled"]:
         return
     user_id = conn["user_id"]
@@ -1022,6 +1023,8 @@ async def main():
     asyncio.get_running_loop().create_task(cleanup_task())
 
     logger.info("Бот запущен!")
+    bc_count = len(db.get_all_business_connections())
+    logger.info(f"В базе бизнес-подключений: {bc_count}")
     while True:
         try:
             await dp.start_polling(bot, timeout=20)
