@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -666,10 +667,9 @@ async def on_business_message(msg: Message):
         else:
             receiver_id = conn["user_id"]
 
-        if file_id not in FORWARDED_PHOTOS and not (
+        if not _was_forwarded(media_path) and not (
             not is_reply_media and sender_id == receiver_id
         ):
-            FORWARDED_PHOTOS.add(file_id)
             try:
                 if media_path.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
                     await bot.send_photo(
@@ -833,9 +833,35 @@ async def on_maybe_deleted(msg: Message):
 MEDIA_DIR = Path(os.getenv("MEDIA_DIR", str(Path(__file__).resolve().parent / "media")))
 MEDIA_DIR.mkdir(exist_ok=True)
 
-# Уже отправленные владельцу копии фото (file_id --> chat/message_id),
-# чтобы не слать дубли (бизнес-апдейты приходят парой в два чата).
-FORWARDED_PHOTOS: set[str] = set()
+# Уже отправленные владельцу копии фото (hash файла --> время), чтобы
+# не слать дубли: business-апдейты приходят парой в разные чаты и могут
+# иметь разные file_id, поэтому дедуплицируем по содержимому.
+FORWARDED_PHOTOS: dict[str, float] = {}
+FORWARD_WINDOW_SEC = 180  # окно, в котором одинаковый файл шлём один раз
+
+
+def _file_sha(path: str) -> str | None:
+    import hashlib
+
+    h = hashlib.sha256()
+    try:
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                h.update(chunk)
+    except Exception:
+        return None
+    return h.hexdigest()
+
+
+def _was_forwarded(path: str) -> bool:
+    h = _file_sha(path)
+    if not h:
+        return False
+    now = time.time()
+    if h in FORWARDED_PHOTOS and now - FORWARDED_PHOTOS[h] < FORWARD_WINDOW_SEC:
+        return True
+    FORWARDED_PHOTOS[h] = now
+    return False
 
 
 async def save_media(msg: Message) -> str | None:
