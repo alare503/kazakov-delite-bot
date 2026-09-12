@@ -865,10 +865,12 @@ def _was_forwarded(path: str) -> bool:
 
 
 async def save_media(msg: Message) -> str | None:
+    if msg.sticker or (msg.reply_to_message and msg.reply_to_message.sticker):
+        return None  # стикеры не сохраняем и не пересылаем
     target = msg
     if (not msg.photo and not msg.video and not msg.video_note
             and not msg.animation and not msg.document and not msg.audio
-            and not msg.voice and not msg.sticker):
+            and not msg.voice):
         # Возможно, медиа пришло как цитата (reply на исчезающее фото)
         if msg.reply_to_message and msg.reply_to_message.photo:
             target = msg.reply_to_message
@@ -900,9 +902,6 @@ async def save_media(msg: Message) -> str | None:
     elif target.voice:
         file_id = target.voice.file_id
         ext = "ogg"
-    elif target.sticker:
-        file_id = target.sticker.file_id
-        ext = "webp"
     else:
         return None
 
