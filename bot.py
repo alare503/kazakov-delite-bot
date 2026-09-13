@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -652,7 +653,8 @@ async def on_business_message(msg: Message):
         sender_name = f"ID:{conn['user_id']}"
         sender_username = None
 
-    if media_path and settings["forward_media"]:
+    is_voice = bool(msg.voice or (msg.reply_to_message and msg.reply_to_message.voice))
+    if media_path and settings["forward_media"] and not is_voice:
         src_photo = msg.photo or (msg.reply_to_message.photo if msg.reply_to_message else None)
         file_id = src_photo[-1].file_id if src_photo else media_path
 
@@ -746,6 +748,55 @@ async def on_edited_business_message(msg: Message):
         logger.warning(f"Business edit: не удалось отправить {user_id}: {e}")
 
 
+def _media_path_from_text(text: str) -> str | None:
+    import re
+
+    m = re.search(r"\[медиа сохранено: ([^\]]+)\]", text)
+    if m:
+        return m.group(1)
+    return None
+
+
+async def _send_media_with_notice(user_id, media_path, text, sender_id, sender_username, sender_name):
+    """Шлёт уведомление об удалении, прикрепив сохранённый файл (гс и т.п.)."""
+    clean = re.sub(r"\[медиа сохранено: [^\]]+\]\s*", "", text)
+    caption = (
+        f"🗑 <b>Удалённое сообщение в личке</b>\n\n"
+        f"<i>{clean or '<нет текста>'}</i>\n\n"
+        f"👤 {sender_display(sender_id, sender_username, sender_name)} "
+        f"удалил(а) сообщение."
+    )
+    path = Path(media_path)
+    if not path.exists():
+        await bot.send_message(user_id, caption, parse_mode="HTML")
+        return
+    try:
+        if media_path.lower().endswith((".ogg", ".mp3", ".wav")):
+            await bot.send_voice(
+                user_id,
+                FSInputFile(media_path),
+                caption=caption,
+                parse_mode="HTML",
+            )
+        elif media_path.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".mp4", ".gif")):
+            await bot.send_document(
+                user_id,
+                FSInputFile(media_path),
+                caption=caption,
+                parse_mode="HTML",
+            )
+        else:
+            await bot.send_document(
+                user_id,
+                FSInputFile(media_path),
+                caption=caption,
+                parse_mode="HTML",
+            )
+    except Exception as e:
+        logger.warning(f"Delete media: не удалось отправить файл {user_id}: {type(e).__name__}: {e}")
+        await bot.send_message(user_id, caption, parse_mode="HTML")
+
+
 @router.deleted_business_messages()
 async def on_deleted_business_messages(evt: BusinessMessagesDeleted):
     conn = db.get_business_connection(evt.business_connection_id)
@@ -764,6 +815,7 @@ async def on_deleted_business_messages(evt: BusinessMessagesDeleted):
         sender_id = message_data["sender_id"]
         sender_name = message_data["sender_name"]
         sender_username = message_data.get("sender_username")
+        media_path = _media_path_from_text(text)
         db.delete_message(evt.chat.id, mid)
 
         # Не присылаем владельцу подписки удаление его собственного сообщения
@@ -775,14 +827,19 @@ async def on_deleted_business_messages(evt: BusinessMessagesDeleted):
             continue
 
         try:
-            await bot.send_message(
-                user_id,
-                f"🗑 <b>Удалённое сообщение в личке</b>\n\n"
-                f"<i>{text}</i>\n\n"
-                f"👤 {sender_display(sender_id, sender_username, sender_name)} "
-                f"удалил(а) сообщение.",
-                parse_mode="HTML",
-            )
+            if media_path:
+                await _send_media_with_notice(
+                    user_id, media_path, text, sender_id, sender_username, sender_name
+                )
+            else:
+                await bot.send_message(
+                    user_id,
+                    f"🗑 <b>Удалённое сообщение в личке</b>\n\n"
+                    f"<i>{text}</i>\n\n"
+                    f"👤 {sender_display(sender_id, sender_username, sender_name)} "
+                    f"удалил(а) сообщение.",
+                    parse_mode="HTML",
+                )
         except Exception as e:
             logger.warning(f"Business delete: не удалось отправить {user_id}: {e}")
 
