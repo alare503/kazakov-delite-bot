@@ -1035,6 +1035,7 @@ async def main():
     logger.info("Бот запущен!")
     bc_count = len(db.get_all_business_connections())
     logger.info(f"В базе бизнес-подключений: {bc_count}")
+    logger.info("BUILD: no-immediate-forward v3629d56")
     while True:
         try:
             await dp.start_polling(bot, timeout=20)
